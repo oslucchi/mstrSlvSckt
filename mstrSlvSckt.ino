@@ -3,6 +3,9 @@
 #include "Timer.h"
 //The setup function is called once at startup of the sketch
 
+#define NUM_OF_SAMPLES		20
+#define LOWER_CURRENT_BOUND  3
+
 int sensorValue;
 float voltage;
 TimerManager timerManager;
@@ -34,7 +37,6 @@ void setup()
 // The loop function is called in an endless loop
 void loop()
 {
-
 	now = millis();
 	timerManager.update(now);
 
@@ -55,52 +57,69 @@ void loop()
 	}
 
 	sensorValue += ((readVal = analogRead(A0) - 512) < 0 ? readVal * -1 : readVal);
-	if (++readCount > 50)
+	if (++readCount > NUM_OF_SAMPLES)
 	{
-		sensorValue /= 50;
-		if (!(tmrStart->getIsRunning() || tmrStart->getIsExpired()) &&
-			(sensorValue > 3) &&
-			(slvStatus == LOW))
+		if (Serial.read())
+		sensorValue /= NUM_OF_SAMPLES;
+		if (sensorValue > LOWER_CURRENT_BOUND)
 		{
-			tmrStop->reset();
-			tmrStart->start(now);
-			if (tmrStart->getIsFront())
-			{
-				Serial.print("Master active: ");
-				Serial.println(sensorValue);
-			}
+			requestToStart = true;
+		}
+		else
+		{
+			requestToStop = true;
 		}
 
-		if (!(tmrStop->getIsRunning() || tmrStop->getIsExpired()) &&
-			(sensorValue <= 3) &&
-			(slvStatus == HIGH))
+		if (slvStatus == HIGH)
 		{
-			tmrStart->reset();
-			tmrStop->start(now);
-			if (tmrStop->getIsFront())
+			if (requestToStop)
 			{
-				Serial.print("Master inactive: ");
-				Serial.println(sensorValue);
+				if (!tmrStop->getIsRunning())
+				{
+					tmrStart->reset();
+					tmrStop->start(now);
+					Serial.print("Master inactive: ");
+					Serial.println(sensorValue);
+				}
+				else
+				{
+					if (tmrStop->getIsExpired())
+					{
+						slvStatus = LOW;
+					}
+				}
+			}
+			else
+			{
+				tmrStop->reset();
 			}
 		}
-		sensorValue = 0;
-		readCount = 0;
-	}
-
-	//voltage = sensorValue * (5.0 / 1023.0);
-
-	if (tmrStart->getIsExpired() && tmrStart->getIsFront())
-	{
-		slvStatus = HIGH;
-		Serial.println("enable socket");
-	}
-
-	if (tmrStop->getIsExpired() && tmrStop->getIsFront())
-	{
-		slvStatus = LOW;
-		Serial.println("disable socket");
+		else
+		{
+			if (requestToStart)
+			{
+				if (!tmrStart->getIsRunning())
+				{
+					tmrStop->reset();
+					tmrStart->start(now);
+					Serial.print("Master active: ");
+					Serial.println(sensorValue);
+				}
+				else
+				{
+					if (tmrStart->getIsExpired())
+					{
+						slvStatus = HIGH;
+					}
+				}
+			}
+			else
+			{
+				tmrStart->reset();
+			}
+		}
 	}
 
 	analogWrite(10, slvStatus*255);
-	digitalWrite(LED_BUILTIN, ledStatus | slvStatus);
+	digitalWrite(LED_BUILTIN, ((ledStatus == HIGH) || (slvStatus == HIGH) ? HIGH : LOW));
 }
